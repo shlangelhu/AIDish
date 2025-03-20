@@ -152,7 +152,7 @@ def record_meal():
             })
         
         if not recorded_foods:
-            return jsonify({"message": "所有食物都已经记录过了", "skipped_foods": skipped_foods}), 400
+            return jsonify({"message": "所有食物都已经记录过了", "skipped_foods": skipped_foods}), 201
         
         # 计算该餐的总营养值
         total_nutrition = calculate_total_nutrition(recorded_foods)
