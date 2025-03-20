@@ -304,6 +304,8 @@ def get_meals():
     - 指定日期的所有三餐记录，每餐包含食物信息、总营养成分和实际摄入营养
     """
     current_user_id = get_jwt_identity()
+
+    print(f'current_user_id: {current_user_id}')
     
     # 处理日期参数
     date_str = request.args.get('date')
@@ -314,12 +316,16 @@ def get_meals():
             return jsonify({"message": "日期格式错误，应为YYYY-MM-DD"}), 400
     else:
         query_date = datetime.now().date()
+
+    print(f'date_str: {date_str}')
     
     # 查询当天的所有餐点记录
     meals = StudentMeal.query.filter_by(
         user_id=current_user_id,
         date=query_date
     ).all()
+
+    print(f'meals: {meals}')
     
     # 按餐点类型分组
     meals_by_type = {'1': [], '2': [], '3': []}
@@ -358,6 +364,8 @@ def get_meals():
         'date': query_date.strftime('%Y-%m-%d'),
         'meals': {}
     }
+
+    print(f'meals_by_type: {meals_by_type}')
     
     def calculate_actual_nutrition(total_nutrition):
         """计算实际摄入的营养值（按80%计算）"""
@@ -389,6 +397,8 @@ def get_meals():
             'total_nutrition': total_day_nutrition,
             'actual_nutrition': actual_day_nutrition  # 新增实际摄入营养字段
         }
+    
+    print(f'result: {result}')
     
     return jsonify(result), 200
 
@@ -1091,6 +1101,8 @@ def get_preselected_meals():
             return jsonify({"message": "日期格式错误，应为YYYY-MM-DD"}), 400
     else:
         query_date = datetime.now().date()
+
+    print(f'query_date: {query_date}')
     
     # 构建查询
     query = PreselectedMeal.query.filter_by(
