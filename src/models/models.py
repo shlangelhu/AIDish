@@ -77,6 +77,32 @@ class StudentMeal(db.Model):
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S')
         }
 
+class PreselectedMeal(db.Model):
+    """用户预选餐表"""
+    __tablename__ = 'preselected_meals'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    food_id = db.Column(db.Integer, db.ForeignKey('foods.id'), nullable=False)
+    meal_type = db.Column(db.String(20), nullable=False)  # 用餐类型：1早餐、2午餐、3晚餐
+    date = db.Column(db.Date, nullable=False)
+    amount = db.Column(db.Float, nullable=False, default=1)  # 份数
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    
+    # 建立关联
+    user = db.relationship('User', backref=db.backref('preselected_meals', lazy=True))
+    food = db.relationship('Food', backref=db.backref('preselected_meals', lazy=True))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'food_name': self.food.name,
+            'meal_type': self.meal_type,
+            'date': self.date.strftime('%Y-%m-%d'),
+            'amount': self.amount,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S')
+        }
+
 class UserSpirit(db.Model):
     """用户营养精灵表"""
     __tablename__ = 'user_spirit'

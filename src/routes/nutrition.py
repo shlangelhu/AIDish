@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from src.models.models import db, Food, StudentMeal, User, UserSpirit, PreselectedMeal
 from datetime import datetime, timedelta
-from src.models.models import db, Food, StudentMeal, User, UserSpirit
 
 nutrition_bp = Blueprint('nutrition', __name__)
 
@@ -35,21 +35,21 @@ def get_meal_type_by_time(current_time=None):
         return '1'  # 第二天的早餐
 
 @nutrition_bp.route('/meals', methods=['POST'])
-@jwt_required()
 def record_meal():
     """记录用户的饮食情况
     
     请求体格式:
     {
+        "username": "用户名",
         "date": "2025-03-18",  # 可选，默认为当天
         "meal_type": "1",      # 可选，1: 早餐, 2: 午餐, 3: 晚餐，不传则根据当前时间判断
         "foods": [
             {
-                "food_id": 1,
+                "food_name": "米饭",  # 食物名称
                 "amount": 1     # 可选，默认为1
             },
             {
-                "food_id": 2,
+                "food_name": "红烧排骨",
                 "amount": 0.5
             }
         ]
@@ -59,106 +59,111 @@ def record_meal():
     - 成功: 返回记录的饮食信息和精灵成长信息
     - 失败: 返回错误信息
     """
-    current_user_id = get_jwt_identity()
-    
     # 获取请求数据
     data = request.get_json()
-        
+    
+    username = data.get('username')
+    if not username:
+        return jsonify({"message": "用户名不能为空"}), 400
+    
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({"message": "用户不存在"}), 404
+    
+    # 验证请求数据
     if not data.get('foods') or not isinstance(data.get('foods'), list) or len(data.get('foods')) == 0:
         return jsonify({"message": "必须提供至少一种食物"}), 400
     
-    # 获取用餐类型，如果没有提供则根据当前时间判断
-    meal_type = str(data.get('meal_type', ''))
+    # 处理日期参数
+    meal_date = data.get('date')
+    if meal_date:
+        try:
+            meal_date = datetime.strptime(meal_date, '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({"message": "日期格式错误，应为YYYY-MM-DD"}), 400
+    else:
+        meal_date = datetime.now().date()
+    
+    # 处理餐点类型
+    meal_type = data.get('meal_type')
     if not meal_type:
-        current_time = datetime.now()
-        meal_type = get_meal_type_by_time(current_time)
-    elif meal_type not in ['1', '2', '3']:
-        return jsonify({"message": "用餐类型必须是：1(早餐)、2(午餐)或3(晚餐)"}), 400
+        meal_type = get_meal_type_by_time()
     
-    # 获取日期，默认为当天
-    try:
-        if 'date' in data:
-            meal_date = datetime.strptime(data['date'], '%Y-%m-%d').date()
-        else:
-            meal_date = datetime.now().date()
-    except ValueError:
-        return jsonify({"message": "日期格式错误，请使用YYYY-MM-DD格式"}), 400
-    
-    # 验证每个食物ID是否存在
-    food_ids = [food['food_id'] for food in data['foods']]
-    foods = Food.query.filter(Food.id.in_(food_ids)).all()
-    if len(foods) != len(food_ids):
-        return jsonify({"message": "部分食物ID不存在"}), 400
-    
-    # 检查是否已经记录过该餐
+    # 检查是否已经记录过相同的食物
     existing_meals = StudentMeal.query.filter_by(
-        user_id=current_user_id,
+        user_id=user.id,
         date=meal_date,
         meal_type=meal_type
     ).all()
     
-    if existing_meals:
-        # 如果已存在记录，先删除旧记录
-        for meal in existing_meals:
-            db.session.delete(meal)
-    
-    # 创建新的饮食记录
-    new_meals = []
-    recorded_foods = []
+    # 获取已记录的食物ID列表
+    recorded_food_ids = {meal.food_id for meal in existing_meals}
     
     try:
+        recorded_foods = []
+        skipped_foods = []
+        
+        # 处理每个食物
         for food_data in data['foods']:
-            food_id = food_data['food_id']
-            amount = food_data.get('amount', 1)  # 默认份数为1
+            food_name = food_data.get('food_name')
+            if not food_name:
+                continue
+                
+            # 根据食物名称查找食物
+            food = Food.query.filter_by(name=food_name).first()
+            if not food:
+                return jsonify({"message": f"未找到食物：{food_name}"}), 404
             
-            # 验证份数是否合理
-            if amount <= 0:
-                return jsonify({"message": f"食物ID {food_id} 的份数必须大于0"}), 400
+            # 如果食物已经记录过，则跳过
+            if food.id in recorded_food_ids:
+                skipped_foods.append(food_name)
+                continue
+                
+            amount = food_data.get('amount', 1)
             
             # 创建记录
             meal = StudentMeal(
-                user_id=current_user_id,
-                food_id=food_id,
+                user_id=user.id,
+                food_id=food.id,
                 meal_type=meal_type,
                 date=meal_date,
                 amount=amount
             )
-            db.session.add(meal)
-            new_meals.append(meal)
             
-            # 记录食物信息用于返回
-            food = next(f for f in foods if f.id == food_id)
+            db.session.add(meal)
             recorded_foods.append({
-                "food_id": food_id,
-                "food_name": food.name,
-                "amount": amount,
-                "nutrition": {
-                    "calories": food.calories * amount,
-                    "protein": food.protein * amount,
-                    "fat": food.fat * amount,
-                    "calcium": food.calcium * amount if food.calcium else None,
-                    "iron": food.iron * amount if food.iron else None,
-                    "zinc": food.zinc * amount if food.zinc else None,
-                    "magnesium": food.magnesium * amount if food.magnesium else None,
-                    "vitamin_a": food.vitamin_a * amount if food.vitamin_a else None,
-                    "vitamin_b1": food.vitamin_b1 * amount if food.vitamin_b1 else None,
-                    "vitamin_b2": food.vitamin_b2 * amount if food.vitamin_b2 else None,
-                    "vitamin_c": food.vitamin_c * amount if food.vitamin_c else None,
-                    "vitamin_d": food.vitamin_d * amount if food.vitamin_d else None,
-                    "vitamin_e": food.vitamin_e * amount if food.vitamin_e else None
+                'food_name': food.name,
+                'amount': amount,
+                'nutrition': {
+                    'calories': food.calories * amount if food.calories is not None else None,
+                    'protein': food.protein * amount if food.protein is not None else None,
+                    'fat': food.fat * amount if food.fat is not None else None,
+                    'calcium': food.calcium * amount if food.calcium is not None else None,
+                    'iron': food.iron * amount if food.iron is not None else None,
+                    'zinc': food.zinc * amount if food.zinc is not None else None,
+                    'magnesium': food.magnesium * amount if food.magnesium is not None else None,
+                    'vitamin_a': food.vitamin_a * amount if food.vitamin_a is not None else None,
+                    'vitamin_b1': food.vitamin_b1 * amount if food.vitamin_b1 is not None else None,
+                    'vitamin_b2': food.vitamin_b2 * amount if food.vitamin_b2 is not None else None,
+                    'vitamin_c': food.vitamin_c * amount if food.vitamin_c is not None else None,
+                    'vitamin_d': food.vitamin_d * amount if food.vitamin_d is not None else None,
+                    'vitamin_e': food.vitamin_e * amount if food.vitamin_e is not None else None
                 }
             })
+        
+        if not recorded_foods:
+            return jsonify({"message": "所有食物都已经记录过了", "skipped_foods": skipped_foods}), 400
         
         # 计算该餐的总营养值
         total_nutrition = calculate_total_nutrition(recorded_foods)
         
         # 更新精灵属性
-        spirit_update = update_spirit_attributes(current_user_id, total_nutrition)
+        spirit_update = update_spirit_attributes(user.id, total_nutrition)
         
         # 提交所有更改
         db.session.commit()
         
-        return jsonify({
+        response_data = {
             "message": "饮食记录添加成功",
             "meal": {
                 "date": meal_date.strftime('%Y-%m-%d'),
@@ -167,7 +172,13 @@ def record_meal():
                 "total_nutrition": total_nutrition
             },
             "spirit": spirit_update
-        }), 201
+        }
+        
+        if skipped_foods:
+            response_data["skipped_foods"] = skipped_foods
+            response_data["message"] = "部分食物已记录过，已自动跳过"
+        
+        return jsonify(response_data), 201
         
     except Exception as e:
         db.session.rollback()
@@ -194,90 +205,90 @@ def update_spirit_attributes(user_id, total_nutrition):
     
     # 根据营养均衡程度增加额外经验
     nutrition_balance = 0
-    if total_nutrition['calories'] > 0:
+    if total_nutrition.get('calories', 0) > 0:
         nutrition_balance += 1
-    if total_nutrition['protein'] > 0:
+    if total_nutrition.get('protein', 0) > 0:
         nutrition_balance += 1
-    if total_nutrition['fat'] > 0:
+    if total_nutrition.get('fat', 0) > 0:
         nutrition_balance += 1
-    if total_nutrition['calcium'] > 0:
+    if total_nutrition.get('calcium', 0) > 0:
         nutrition_balance += 1
-        
-    # 营养均衡度越高，获得的经验越多（每种营养+2经验）
-    exp_gain += nutrition_balance * 2
     
-    # 更新经验值
+    # 根据营养均衡程度给予额外经验（最多+5经验）
+    exp_gain += min(nutrition_balance, 5)
+    
+    # 更新精灵经验值
     spirit.spirit_exp += exp_gain
     
-    # 检查是否升级（每级所需经验值为：当前等级×200）
-    next_level_exp = spirit.spirit_level * 200
-    while spirit.spirit_exp >= next_level_exp:
-        spirit.spirit_exp -= next_level_exp
+    # 检查是否升级
+    while spirit.spirit_exp >= spirit.spirit_level * 100:
+        spirit.spirit_exp -= spirit.spirit_level * 100
         spirit.spirit_level += 1
-        next_level_exp = spirit.spirit_level * 200
     
-    # 根据摄入的营养更新属性
-    # 热量影响体重（每2000卡路里增加0.1体重）
-    if total_nutrition['calories'] > 0:
-        weight_gain = min(total_nutrition['calories'] / 2000 * 0.1, 0.1)
-        spirit.weight = min(spirit.weight + weight_gain, 100)
+    # 更新精灵属性
+    # 热量影响体重（每100卡路里增加1点）
+    weight_gain = total_nutrition.get('calories', 0) / 100
+    spirit.weight = min(100, spirit.weight + int(weight_gain))
     
-    # 蛋白质影响力量（每30g蛋白质增加0.1力量）
-    if total_nutrition['protein'] > 0:
-        strength_gain = min(total_nutrition['protein'] / 30 * 0.1, 0.1)
-        spirit.strength = min(spirit.strength + strength_gain, 100)
+    # 蛋白质影响力量（每10g增加1点）
+    strength_gain = total_nutrition.get('protein', 0) / 10
+    spirit.strength = min(100, spirit.strength + int(strength_gain))
     
-    # 钙质和维生素D影响身高（每天最多增加0.05身高）
-    if total_nutrition['calcium'] > 0 or total_nutrition.get('vitamin_d', 0) > 0:
-        height_gain = 0.05
-        spirit.height = min(spirit.height + height_gain, 200)
+    # 维生素影响智力（每30mg维生素增加1点）
+    vitamin_total = (
+        total_nutrition.get('vitamin_b1', 0) + 
+        total_nutrition.get('vitamin_b2', 0) + 
+        total_nutrition.get('vitamin_c', 0)
+    )
+    iq_gain = vitamin_total / 30
+    spirit.iq = min(100, spirit.iq + int(iq_gain))
     
-    # 维生素影响智力（每种维生素增加0.05智力）
-    vitamins_count = sum(1 for k in ['vitamin_a', 'vitamin_b1', 'vitamin_b2', 'vitamin_c', 'vitamin_d', 'vitamin_e'] 
-                        if total_nutrition.get(k, 0) > 0)
-    if vitamins_count > 0:
-        iq_gain = vitamins_count * 0.05
-        spirit.iq = min(spirit.iq + iq_gain, 100)
-    
+    # 更新时间
     spirit.updated_at = datetime.now()
     
     return {
-        "name": spirit.spirit_name,
+        "spirit_name": spirit.spirit_name,
         "level": spirit.spirit_level,
         "exp": spirit.spirit_exp,
-        "next_level_exp": next_level_exp,
-        "exp_gained": exp_gain,
+        "exp_gain": exp_gain,
         "attributes": {
-            "height": round(spirit.height, 2),
-            "weight": round(spirit.weight, 2),
-            "iq": round(spirit.iq, 2),
-            "strength": round(spirit.strength, 2)
+            "weight": spirit.weight,
+            "strength": spirit.strength,
+            "iq": spirit.iq
         }
     }
 
 def calculate_total_nutrition(foods):
-    """计算多个食物的总营养值"""
+    """计算多个食物的总营养值
+    
+    Args:
+        foods: 食物列表，每个食物包含 nutrition 字段
+        
+    Returns:
+        包含总营养值的字典
+    """
     total = {
-        "calories": 0,
-        "protein": 0,
-        "fat": 0,
-        "calcium": 0,
-        "iron": 0,
-        "zinc": 0,
-        "magnesium": 0,
-        "vitamin_a": 0,
-        "vitamin_b1": 0,
-        "vitamin_b2": 0,
-        "vitamin_c": 0,
-        "vitamin_d": 0,
-        "vitamin_e": 0
+        'calories': 0,
+        'protein': 0,
+        'fat': 0,
+        'calcium': 0,
+        'iron': 0,
+        'zinc': 0,
+        'magnesium': 0,
+        'vitamin_a': 0,
+        'vitamin_b1': 0,
+        'vitamin_b2': 0,
+        'vitamin_c': 0,
+        'vitamin_d': 0,
+        'vitamin_e': 0
     }
     
     for food in foods:
-        nutrition = food['nutrition']
+        nutrition = food.get('nutrition', {})
         for key in total:
-            if nutrition[key] is not None:
-                total[key] += nutrition[key]
+            value = nutrition.get(key)
+            if value is not None:
+                total[key] += value
     
     return total
 
@@ -888,3 +899,159 @@ def get_nutrition_analysis(daily_avgs, user):
     analysis["suggestions"] = suggestion_text
     
     return analysis
+
+@nutrition_bp.route('/preselect', methods=['POST'])
+@jwt_required()
+def preselect_meal():
+    """预选餐接口
+    
+    请求体格式:
+    {
+        "date": "2025-03-21",      # 预选日期
+        "meal_type": "1",          # 餐点类型：1早餐、2午餐、3晚餐
+        "foods": [                 # 食物列表
+            {
+                "food_name": "米饭",
+                "amount": 1         # 可选，份数，默认1
+            },
+            {
+                "food_name": "红烧排骨",
+                "amount": 0.5
+            }
+        ]
+    }
+    
+    返回:
+    - 成功: 返回预选的餐食信息
+    - 失败: 返回错误信息
+    """
+    data = request.get_json()
+    
+    # 从 JWT 中获取用户 ID
+    user_id = get_jwt_identity()
+    user = User.query.filter_by(id=user_id).first()
+    if not user:
+        return jsonify({"message": "用户不存在"}), 404
+    
+    # 验证日期
+    try:
+        meal_date = datetime.strptime(data.get('date', ''), '%Y-%m-%d').date()
+        if meal_date < datetime.now().date():
+            return jsonify({"message": "不能为过去的日期预选餐食"}), 400
+    except ValueError:
+        return jsonify({"message": "日期格式错误，应为YYYY-MM-DD"}), 400
+    
+    # 验证餐点类型
+    meal_type = data.get('meal_type')
+    if not meal_type or meal_type not in ['1', '2', '3']:
+        return jsonify({"message": "餐点类型错误，应为1、2或3"}), 400
+    
+    # 验证食物列表
+    foods = data.get('foods', [])
+    if not foods or not isinstance(foods, list):
+        return jsonify({"message": "必须提供至少一种食物"}), 400
+    
+    try:
+        # 删除该日期该餐点的所有预选记录
+        PreselectedMeal.query.filter_by(
+            user_id=user_id,
+            date=meal_date,
+            meal_type=meal_type
+        ).delete()
+        
+        recorded_foods = []
+        for food_data in foods:
+            food_name = food_data.get('food_name')
+            if not food_name:
+                continue
+            
+            # 查找食物
+            food = Food.query.filter_by(name=food_name).first()
+            if not food:
+                return jsonify({"message": f"未找到食物：{food_name}"}), 404
+            
+            amount = food_data.get('amount', 1)
+            
+            # 创建预选记录
+            preselected = PreselectedMeal(
+                user_id=user_id,
+                food_id=food.id,
+                meal_type=meal_type,
+                date=meal_date,
+                amount=amount
+            )
+            
+            db.session.add(preselected)
+            recorded_foods.append({
+                'food_name': food.name,
+                'amount': amount
+            })
+        
+        db.session.commit()
+        
+        return jsonify({
+            "message": "预选餐食添加成功",
+            "meal": {
+                "date": meal_date.strftime('%Y-%m-%d'),
+                "meal_type": meal_type,
+                "foods": recorded_foods
+            }
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": f"预选失败：{str(e)}"}), 500
+
+
+@nutrition_bp.route('/preselect', methods=['GET'])
+@jwt_required()
+def get_preselected_meals():
+    """获取预选餐列表
+    
+    参数:
+    - date: 查询日期，格式为YYYY-MM-DD，可选，默认为今天
+    - meal_type: 餐点类型，1早餐、2午餐、3晚餐，可选
+    
+    返回:
+    - 成功: 返回预选的餐食列表
+    - 失败: 返回错误信息
+    """
+    user_id = get_jwt_identity()
+    
+    # 处理日期参数
+    date_str = request.args.get('date')
+    if date_str:
+        try:
+            query_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({"message": "日期格式错误，应为YYYY-MM-DD"}), 400
+    else:
+        query_date = datetime.now().date()
+    
+    # 构建查询
+    query = PreselectedMeal.query.filter_by(
+        user_id=user_id,
+        date=query_date
+    )
+    
+    # 处理餐点类型参数
+    meal_type = request.args.get('meal_type')
+    if meal_type:
+        if meal_type not in ['1', '2', '3']:
+            return jsonify({"message": "餐点类型错误，应为1、2或3"}), 400
+        query = query.filter_by(meal_type=meal_type)
+    
+    # 获取预选记录
+    preselected_meals = query.all()
+    
+    # 按餐点类型分组
+    meals_by_type = {}
+    for meal in preselected_meals:
+        if meal.meal_type not in meals_by_type:
+            meals_by_type[meal.meal_type] = []
+        meals_by_type[meal.meal_type].append(meal.to_dict())
+    
+    return jsonify({
+        "date": query_date.strftime('%Y-%m-%d'),
+        "meals": meals_by_type
+    }), 200

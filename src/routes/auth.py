@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import create_access_token
+from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 from datetime import timedelta
 from src.models.models import db, User, UserSpirit
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -175,3 +175,112 @@ def login():
         }), 200
     
     return jsonify({"message": "用户名或密码错误"}), 401
+
+@auth_bp.route('/check_username', methods=['GET'])
+def check_username():
+    """检查用户名是否已经注册
+    
+    参数:
+    - username: 要检查的用户名（通过查询参数传递）
+    
+    返回:
+    {
+        "exists": true/false,      # 用户名是否已存在
+        "message": "提示信息"
+    }
+    """
+    username = request.args.get('username')
+    if not username:
+        return jsonify({
+            "exists": False,
+            "message": "请提供要检查的用户名"
+        }), 400
+    
+    # 检查用户名格式
+    if len(username) < 3 or len(username) > 20:
+        return jsonify({
+            "exists": False,
+            "message": "用户名长度必须在3-20个字符之间"
+        }), 400
+    
+    # 检查用户名是否已存在
+    user = User.query.filter_by(username=username).first()
+    
+    return jsonify({
+        "exists": user is not None,
+        "message": "用户名已存在" if user else "用户名可用"
+    }), 200
+
+@auth_bp.route('/profile', methods=['POST'])
+@jwt_required()
+def update_profile():
+    """更新用户信息（需要JWT鉴权）
+    
+    请求体格式:
+    {
+        "name": "张三",          # 可选，显示的姓名
+        "gender": "男",          # 可选，性别
+        "height": 170,          # 可选，身高
+        "weight": 60,           # 可选，体重
+        "age": 25,              # 可选，年龄
+        "education": "本科"      # 可选，学历
+    }
+    
+    返回:
+    - 成功: 返回更新后的用户信息
+    - 失败: 返回错误信息
+    """
+    data = request.get_json()
+    
+    # 从 JWT 中获取用户名
+    user_id = get_jwt_identity()
+    user = User.query.filter_by(id=user_id).first()
+    if not user:
+        return jsonify({"message": "用户不存在"}), 404
+    
+    # 验证可选字段的格式
+    if 'gender' in data and data['gender'] not in ['男', '女']:
+        return jsonify({"message": "性别必须是'男'或'女'"}), 400
+        
+    if 'height' in data and (not isinstance(data['height'], (int, float)) or data['height'] <= 0):
+        return jsonify({"message": "身高必须是大于0的数字"}), 400
+        
+    if 'weight' in data and (not isinstance(data['weight'], (int, float)) or data['weight'] <= 0):
+        return jsonify({"message": "体重必须是大于0的数字"}), 400
+        
+    if 'age' in data and (not isinstance(data['age'], int) or data['age'] <= 0):
+        return jsonify({"message": "年龄必须是大于0的整数"}), 400
+    
+    try:
+        # 更新用户信息
+        if 'name' in data:
+            user.name = data['name']
+        if 'gender' in data:
+            user.gender = data['gender']
+        if 'height' in data:
+            user.height = data['height']
+        if 'weight' in data:
+            user.weight = data['weight']
+        if 'age' in data:
+            user.age = data['age']
+        if 'education' in data:
+            user.education = data['education']
+        
+        db.session.commit()
+        
+        return jsonify({
+            "message": "用户信息更新成功",
+            "user": {
+                "username": user.username,
+                "name": user.name,
+                "gender": user.gender,
+                "height": user.height,
+                "weight": user.weight,
+                "age": user.age,
+                "education": user.education
+            }
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": f"更新失败：{str(e)}"}), 500
