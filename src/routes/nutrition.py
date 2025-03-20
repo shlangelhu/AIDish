@@ -263,7 +263,7 @@ def calculate_total_nutrition(foods):
     
     Args:
         foods: 食物列表，每个食物包含 nutrition 字段
-        
+    
     Returns:
         包含总营养值的字典
     """
@@ -301,124 +301,96 @@ def get_meals():
     - date: 查询日期，格式为YYYY-MM-DD，可选，默认为今天
     
     返回:
-    - 指定日期的所有三餐记录，每餐包含食物信息和总营养成分
+    - 指定日期的所有三餐记录，每餐包含食物信息、总营养成分和实际摄入营养
     """
     current_user_id = get_jwt_identity()
     
-    # 获取查询参数
-    date_str = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
+    # 处理日期参数
+    date_str = request.args.get('date')
+    if date_str:
+        try:
+            query_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({"message": "日期格式错误，应为YYYY-MM-DD"}), 400
+    else:
+        query_date = datetime.now().date()
     
-    try:
-        # 转换日期字符串为datetime对象
-        query_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-    except ValueError:
-        return jsonify({"message": "日期格式错误，请使用YYYY-MM-DD格式"}), 400
+    # 查询当天的所有餐点记录
+    meals = StudentMeal.query.filter_by(
+        user_id=current_user_id,
+        date=query_date
+    ).all()
     
-    # 查询指定日期的所有用餐记录
-    meals = StudentMeal.query.filter(
-        StudentMeal.user_id == current_user_id,
-        StudentMeal.date == query_date
-    ).order_by(StudentMeal.meal_type).all()
+    # 按餐点类型分组
+    meals_by_type = {'1': [], '2': [], '3': []}
+    nutrition_by_type = {'1': [], '2': [], '3': []}
     
-    if not meals:
-        return jsonify({
-            "message": "未找到记录",
-            "date": date_str
-        }), 404
-    
-    # 按餐次分组整理数据
-    meals_by_type = {
-        "1": {"foods": [], "total_nutrition": initialize_nutrition_dict()},
-        "2": {"foods": [], "total_nutrition": initialize_nutrition_dict()},
-        "3": {"foods": [], "total_nutrition": initialize_nutrition_dict()}
-    }
-    
-    # 总营养摄入
-    total_nutrition = initialize_nutrition_dict()
-    
-    # 统计每餐的食物和营养成分
     for meal in meals:
-        meal_info = {
-            "food_id": meal.food_id,
-            "food_name": meal.food.name,
-            "nutrition": get_food_nutrition(meal.food)
+        meal_type = meal.meal_type
+        food = meal.food
+        
+        # 计算该份食物的营养值
+        nutrition = {
+            'calories': food.calories * meal.amount if food.calories is not None else None,
+            'protein': food.protein * meal.amount if food.protein is not None else None,
+            'fat': food.fat * meal.amount if food.fat is not None else None,
+            'calcium': food.calcium * meal.amount if food.calcium is not None else None,
+            'iron': food.iron * meal.amount if food.iron is not None else None,
+            'zinc': food.zinc * meal.amount if food.zinc is not None else None,
+            'magnesium': food.magnesium * meal.amount if food.magnesium is not None else None,
+            'vitamin_a': food.vitamin_a * meal.amount if food.vitamin_a is not None else None,
+            'vitamin_b1': food.vitamin_b1 * meal.amount if food.vitamin_b1 is not None else None,
+            'vitamin_b2': food.vitamin_b2 * meal.amount if food.vitamin_b2 is not None else None,
+            'vitamin_c': food.vitamin_c * meal.amount if food.vitamin_c is not None else None,
+            'vitamin_d': food.vitamin_d * meal.amount if food.vitamin_d is not None else None,
+            'vitamin_e': food.vitamin_e * meal.amount if food.vitamin_e is not None else None
         }
         
-        # 添加食物到对应餐次
-        meals_by_type[meal.meal_type]["foods"].append(meal_info)
-        
-        # 累计该餐次的营养成分
-        meal_type_nutrition = meals_by_type[meal.meal_type]["total_nutrition"]
-        for nutrient in meal_type_nutrition:
-            meal_type_nutrition[nutrient] += getattr(meal.food, nutrient) or 0
-            total_nutrition[nutrient] += getattr(meal.food, nutrient) or 0
+        meals_by_type[meal_type].append({
+            'food_name': food.name,
+            'amount': meal.amount,
+            'nutrition': nutrition
+        })
+        nutrition_by_type[meal_type].append({'nutrition': nutrition})
     
-    # 计算每种营养素占推荐值的百分比
-    user = User.query.get(current_user_id)
-    nutrition_analysis = {}
-    for nutrient, value in total_nutrition.items():
-        nutrition_analysis[nutrient] = analyze_nutrition(
-            value,
-            user.gender,
-            user.age,
-            nutrient
-        )
+    # 计算每餐的总营养值和实际摄入营养
+    result = {
+        'date': query_date.strftime('%Y-%m-%d'),
+        'meals': {}
+    }
     
-    return jsonify({
-        "date": date_str,
-        "meals": {
-            "1": {
-                "foods": meals_by_type["1"]["foods"],
-                "total_nutrition": meals_by_type["1"]["total_nutrition"]
-            },
-            "2": {
-                "foods": meals_by_type["2"]["foods"],
-                "total_nutrition": meals_by_type["2"]["total_nutrition"]
-            },
-            "3": {
-                "foods": meals_by_type["3"]["foods"],
-                "total_nutrition": meals_by_type["3"]["total_nutrition"]
+    def calculate_actual_nutrition(total_nutrition):
+        """计算实际摄入的营养值（按80%计算）"""
+        actual = {}
+        for key, value in total_nutrition.items():
+            actual[key] = round(value * 0.8, 2) if value is not None else None
+        return actual
+    
+    for meal_type in ['1', '2', '3']:
+        if meals_by_type[meal_type]:
+            total_nutrition = calculate_total_nutrition(nutrition_by_type[meal_type])
+            actual_nutrition = calculate_actual_nutrition(total_nutrition)
+            
+            result['meals'][meal_type] = {
+                'foods': meals_by_type[meal_type],
+                'total_nutrition': total_nutrition,
+                'actual_nutrition': actual_nutrition  # 新增实际摄入营养字段
             }
-        },
-        "total_nutrition": total_nutrition,
-        "nutrition_analysis": nutrition_analysis
-    }), 200
-
-def initialize_nutrition_dict():
-    """初始化营养字典"""
-    return {
-        "calories": 0,
-        "protein": 0,
-        "fat": 0,
-        "calcium": 0,
-        "iron": 0,
-        "zinc": 0,
-        "magnesium": 0,
-        "vitamin_a": 0,
-        "vitamin_b1": 0,
-        "vitamin_b2": 0,
-        "vitamin_c": 0,
-        "vitamin_d": 0,
-        "vitamin_e": 0
-    }
-
-def get_food_nutrition(food):
-    """获取食物的营养信息"""
-    return {
-        "calories": food.calories,
-        "protein": food.protein,
-        "fat": food.fat,
-        "calcium": food.calcium,
-        "iron": food.iron,
-        "zinc": food.zinc,
-        "magnesium": food.magnesium,
-        "vitamin_a": food.vitamin_a,
-        "vitamin_b1": food.vitamin_b1,
-        "vitamin_b2": food.vitamin_b2,
-        "vitamin_c": food.vitamin_c,
-        "vitamin_d": food.vitamin_d,
-        "vitamin_e": food.vitamin_e
-    }
+    
+    # 计算全天总计
+    all_nutrition = []
+    for meal_type in ['1', '2', '3']:
+        all_nutrition.extend(nutrition_by_type[meal_type])
+    
+    if all_nutrition:
+        total_day_nutrition = calculate_total_nutrition(all_nutrition)
+        actual_day_nutrition = calculate_actual_nutrition(total_day_nutrition)
+        result['daily_total'] = {
+            'total_nutrition': total_day_nutrition,
+            'actual_nutrition': actual_day_nutrition  # 新增实际摄入营养字段
+        }
+    
+    return jsonify(result), 200
 
 @nutrition_bp.route('/foods', methods=['GET'])
 @jwt_required()
@@ -439,6 +411,98 @@ def get_foods():
             "vitamin_b1": food.vitamin_b1,
             "vitamin_c": food.vitamin_c
         } for food in foods]
+    }), 200
+
+@nutrition_bp.route('/foods', methods=['GET'])
+@jwt_required()
+def get_available_foods():
+    """查询可选食物列表
+    
+    参数:
+    - keyword: 搜索关键词（可选，按食物名称模糊搜索）
+    - page: 页码（可选，默认1）
+    - per_page: 每页数量（可选，默认20，最大50）
+    
+    返回:
+    {
+        "total": 总记录数,
+        "pages": 总页数,
+        "current_page": 当前页码,
+        "per_page": 每页数量,
+        "foods": [
+            {
+                "id": 食物ID,
+                "name": "食物名称",
+                "weight": 标准重量(g),
+                "calories": 热量(kcal),
+                "protein": 蛋白质(g),
+                "fat": 脂肪(g),
+                "nutrition": {
+                    "calcium": 钙(mg),
+                    "iron": 铁(mg),
+                    "zinc": 锌(mg),
+                    "magnesium": 镁(mg),
+                    "vitamin_a": 维生素A(mg),
+                    "vitamin_b1": 维生素B1(mg),
+                    "vitamin_b2": 维生素B2(mg),
+                    "vitamin_c": 维生素C(mg),
+                    "vitamin_d": 维生素D(mg),
+                    "vitamin_e": 维生素E(mg)
+                }
+            },
+            ...
+        ]
+    }
+    """
+    # 获取查询参数
+    keyword = request.args.get('keyword', '').strip()
+    page = request.args.get('page', 1, type=int)
+    per_page = min(request.args.get('per_page', 20, type=int), 50)  # 限制最大每页数量为50
+    
+    # 构建查询
+    query = Food.query
+    
+    # 如果有关键词，添加模糊搜索条件
+    if keyword:
+        query = query.filter(Food.name.like(f'%{keyword}%'))
+    
+    # 获取总记录数和总页数
+    total = query.count()
+    pages = (total + per_page - 1) // per_page
+    
+    # 获取当前页的数据
+    foods = query.order_by(Food.name).offset((page - 1) * per_page).limit(per_page).all()
+    
+    # 构建返回数据
+    food_list = []
+    for food in foods:
+        food_list.append({
+            "id": food.id,
+            "name": food.name,
+            "weight": food.weight,
+            "calories": food.calories,
+            "protein": food.protein,
+            "fat": food.fat,
+            "nutrition": {
+                "calcium": food.calcium,
+                "iron": food.iron,
+                "zinc": food.zinc,
+                "magnesium": food.magnesium,
+                "vitamin_a": food.vitamin_a,
+                "vitamin_b1": food.vitamin_b1,
+                "vitamin_b2": food.vitamin_b2,
+                "vitamin_c": food.vitamin_c,
+                "vitamin_d": food.vitamin_d,
+                "vitamin_e": food.vitamin_e
+            }
+        })
+    
+    return jsonify({
+        "total": total,
+        "pages": pages,
+        "current_page": page,
+        "per_page": per_page,
+        "foods": food_list
     }), 200
 
 @nutrition_bp.route('/statistics', methods=['GET'])
