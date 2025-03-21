@@ -613,7 +613,8 @@ def get_statistics():
         })
     
     # 计算总体统计
-    days_count = (end - start).days + 1
+    # days_count = (end - start).days + 1
+    days_count = len(daily_stats)
     total_stats = {
         "total_calories": sum(day["calories"] for day in daily_stats.values()),
         "total_protein": sum(day["protein"] for day in daily_stats.values()),
@@ -736,7 +737,7 @@ def get_nutrition_standard(nutrient_type, gender, age):
     }
     
     age_key = "<=18" if age <= 18 else ">18"
-    return standards[nutrient_type][gender][age_key]
+    return standards[nutrient_type][gender][age_key]/10
 
 def get_nutrition_grade(percentage):
     """根据营养素摄入比例获取等级评定"""
