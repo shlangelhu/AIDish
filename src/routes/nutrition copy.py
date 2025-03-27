@@ -683,8 +683,8 @@ def get_nutrition_standard(nutrient_type, gender, age):
     """获取营养素的标准参考值"""
     standards = {
         "calories": {
-            "男": {"<=18": 1700, ">18": 1400},
-            "女": {"<=18": 1700, ">18": 1400}
+            "男": {"<=18": 2700, ">18": 2400},
+            "女": {"<=18": 2400, ">18": 2100}
         },
         "protein": {
             "男": {"<=18": 75, ">18": 65},
@@ -711,33 +711,33 @@ def get_nutrition_standard(nutrient_type, gender, age):
             "女": {"<=18": 100, ">18": 100}
         },
         "vitamin_a": {
-            "男": {"<=18": 0.2, ">18": 0.2},
-            "女": {"<=18": 0.2, ">18": 0.2}
+            "男": {"<=18": 1, ">18": 1},
+            "女": {"<=18": 1, ">18": 1}
         },
         "vitamin_b1": {
-            "男": {"<=18": 5, ">18": 5},
-            "女": {"<=18": 5, ">18": 5}
+            "男": {"<=18": 100, ">18": 100},
+            "女": {"<=18": 100, ">18": 100}
         },
         "vitamin_b2": {
-            "男": {"<=18": 1.4, ">18": 1.4},
-            "女": {"<=18": 1.2, ">18": 1.2}
+            "男": {"<=18": 50, ">18": 50},
+            "女": {"<=18": 50, ">18": 50}
         },
         "vitamin_c": {
             "男": {"<=18": 100, ">18": 100},
             "女": {"<=18": 100, ">18": 100}
         },
         "vitamin_d": {
-            "男": {"<=18": 10, ">18": 10},
-            "女": {"<=18": 10, ">18": 10}
+            "男": {"<=18": 100, ">18": 100},
+            "女": {"<=18": 100, ">18": 100}
         },
         "vitamin_e": {
-            "男": {"<=18": 7, ">18": 7},
-            "女": {"<=18": 7, ">18": 7}
+            "男": {"<=18": 100, ">18": 100},
+            "女": {"<=18": 100, ">18": 100}
         }
     }
     
     age_key = "<=18" if age <= 18 else ">18"
-    return standards[nutrient_type][gender][age_key]/2.4
+    return standards[nutrient_type][gender][age_key]/50
 
 def get_nutrition_grade(percentage):
     """根据营养素摄入比例获取等级评定"""
@@ -762,20 +762,27 @@ def get_nutrition_grade(percentage):
             "description": "摄入量接近推荐值，可以适当增加",
             "color": "yellow"
         }
-    elif percentage <= 150:
+    elif percentage <= 105:
         return {
             "grade": "适中",
             "level": 4,
             "description": "摄入量符合推荐值，继续保持",
             "color": "green"
         }
-    elif percentage <= 200:
+    elif percentage <= 120:
         return {
             "grade": "充足",
             "level": 3,
             "description": "摄入量略高于推荐值，可以适当减少",
             "color": "blue"
         }
+    # elif percentage <= 140:
+    #     return {
+    #         "grade": "过量",
+    #         "level": 2,
+    #         "description": "摄入量明显高于推荐值，建议减少",
+    #         "color": "orange"
+    #     }
     else:
         return {
             "grade": "充足",
