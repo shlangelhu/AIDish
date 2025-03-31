@@ -737,7 +737,7 @@ def get_nutrition_standard(nutrient_type, gender, age):
     }
     
     age_key = "<=18" if age <= 18 else ">18"
-    return standards[nutrient_type][gender][age_key]/2.4
+    return standards[nutrient_type][gender][age_key]
 
 def get_nutrition_grade(percentage):
     """根据营养素摄入比例获取等级评定"""
@@ -748,39 +748,32 @@ def get_nutrition_grade(percentage):
             "description": "摄入量远低于推荐值，需要立即改善",
             "color": "red"
         }
-    elif percentage < 80:
+    elif percentage < 70:
         return {
             "grade": "不足",
             "level": 2,
             "description": "摄入量低于推荐值，建议适当增加",
             "color": "orange"
         }
-    elif percentage < 95:
+    elif percentage < 85:
         return {
             "grade": "略低",
             "level": 3,
             "description": "摄入量接近推荐值，可以适当增加",
             "color": "yellow"
         }
-    elif percentage <= 150:
+    elif percentage <= 180:
         return {
             "grade": "适中",
             "level": 4,
             "description": "摄入量符合推荐值，继续保持",
             "color": "green"
         }
-    elif percentage <= 200:
-        return {
-            "grade": "充足",
-            "level": 3,
-            "description": "摄入量略高于推荐值，可以适当减少",
-            "color": "blue"
-        }
     else:
         return {
             "grade": "充足",
             "level": 3,
-            "description": "摄入量略高于推荐值，可以适当减少",
+            "description": "摄入量高于推荐值，建议适当减少",
             "color": "blue"
         }
 
@@ -789,8 +782,9 @@ def analyze_nutrition(daily_avg, gender, age, nutrient_type):
     # 获取标准参考值
     standard = get_nutrition_standard(nutrient_type, gender, age)
     
-    # 计算摄入比例
+    # 计算摄入比例，并限制在50%~150%之间
     percentage = (daily_avg / standard) * 100
+    percentage = max(50, min(150, percentage))
     
     # 获取营养等级评定
     grade_info = get_nutrition_grade(percentage)
