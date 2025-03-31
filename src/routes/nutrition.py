@@ -786,7 +786,11 @@ def analyze_nutrition(daily_avg, gender, age, nutrient_type):
     
     # 计算摄入比例，并限制在50%~150%之间
     percentage = daily_avg / standard
-    percentage = math.pow(percentage, 1/5) * 100
+    percentage = math.pow(percentage, 1/5)
+    diff = percentage - 1 - 0.2
+    diff = math.pow(diff, 1/5)
+
+    percentage = 100 * (percentage - diff)
     
     # 获取营养等级评定
     grade_info = get_nutrition_grade(percentage)
