@@ -284,3 +284,4 @@ def update_profile():
     except Exception as e:
         db.session.rollback()
         return jsonify({"message": f"更新失败：{str(e)}"}), 500
+
