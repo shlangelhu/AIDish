@@ -729,8 +729,8 @@ def get_nutrition_standard(nutrient_type, gender, age):
             "女": {"<=18": 100, ">18": 100}
         },
         "vitamin_d": {
-            "男": {"<=18": 10, ">18": 10},
-            "女": {"<=18": 10, ">18": 10}
+            "男": {"<=18": 1, ">18": 1},
+            "女": {"<=18": 1, ">18": 1}
         },
         "vitamin_e": {
             "男": {"<=18": 7, ">18": 7},
@@ -786,11 +786,10 @@ def analyze_nutrition(daily_avg, gender, age, nutrient_type):
     
     # 计算摄入比例，并限制在50%~150%之间
     percentage = daily_avg / standard
-    percentage = math.pow(percentage, 1/5)
-    diff = percentage - 1 - 0.2
-    diff = math.pow(diff, 1/5)
-
-    percentage = 100 * (percentage - diff)
+    if percentage > 1:
+        percentage = percentage - math.pow(percentage - 1, 1/2)
+    percentage = math.pow(percentage * 0.52, 1/5)
+    percentage = 100 * percentage
     
     # 获取营养等级评定
     grade_info = get_nutrition_grade(percentage)
