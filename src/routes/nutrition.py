@@ -2,6 +2,8 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from src.models.models import db, Food, StudentMeal, User, UserSpirit, PreselectedMeal
 from datetime import datetime, timedelta
+import math
+
 
 nutrition_bp = Blueprint('nutrition', __name__)
 
@@ -783,8 +785,8 @@ def analyze_nutrition(daily_avg, gender, age, nutrient_type):
     standard = get_nutrition_standard(nutrient_type, gender, age)
     
     # 计算摄入比例，并限制在50%~150%之间
-    percentage = (daily_avg / standard) * 100
-    percentage = max(50, min(150, percentage))
+    percentage = daily_avg / standard
+    percentage = math.pow(percentage, 1/5) * 100
     
     # 获取营养等级评定
     grade_info = get_nutrition_grade(percentage)
